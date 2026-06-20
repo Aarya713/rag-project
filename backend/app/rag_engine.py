@@ -7,14 +7,13 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from rank_bm25 import BM25Okapi
 from langchain_groq import ChatGroq
-from docling.document_converter import DocumentConverter
 
 from .models import AnswerResponse, SourceInfo
 
 class RAGEngine:
     def __init__(self, device: int = -1):
         self.device = device
-        # LAZY LOAD: Don't load embeddings immediately
+        # IMPORTANT: These are set to None initially (NOT loaded)
         self._embeddings = None
         self._docling_converter = None
         self.vectorstore = None
@@ -22,45 +21,35 @@ class RAGEngine:
         self.chunks = []
         self.llm = None
         self.history = []
-        print("📦 RAG engine initialized (components will load on demand).")
+        print("📦 RAG engine initialized. Heavy components will load only when needed.")
 
+    # This function loads the embedding model ONLY when you upload a PDF
     def _get_embeddings(self):
-        """Load HuggingFace embeddings only when needed."""
         if self._embeddings is None:
-            print("🔄 Loading embedding model...")
             from langchain_huggingface import HuggingFaceEmbeddings
             self._embeddings = HuggingFaceEmbeddings(
                 model_name="sentence-transformers/all-MiniLM-L6-v2"
             )
-            print("✅ Embedding model loaded.")
         return self._embeddings
 
+    # This function loads the PDF converter ONLY when you upload a PDF
     def _get_converter(self):
-        """Load DocumentConverter only when needed."""
         if self._docling_converter is None:
-            print("🔄 Loading document converter...")
+            from docling.document_converter import DocumentConverter
             self._docling_converter = DocumentConverter()
-            print("✅ Document converter loaded.")
         return self._docling_converter
 
+    # This function loads Groq ONLY when you ask a question
     def _load_llm(self):
-        """Load Groq LLM lazily – completely free!"""
         if self.llm is not None:
             return
-        print("🤖 Connecting to Groq API (Free tier)...")
-        try:
-            self.llm = ChatGroq(
-                model="mixtral-8x7b-32768",
-                temperature=0.3,
-                max_tokens=512
-            )
-            print("✅ Groq connected successfully!")
-        except Exception as e:
-            print(f"❌ Failed to connect to Groq: {e}")
-            raise
+        self.llm = ChatGroq(
+            model="mixtral-8x7b-32768",
+            temperature=0.3,
+            max_tokens=512
+        )
 
-    def parse_document(self, pdf_path: str) -> Tuple[str, List[Document]]:
-        # Use lazy-loaded converter
+    def parse_document(self, pdf_path: str):
         converter = self._get_converter()
         result = converter.convert(pdf_path)
         doc = result.document
@@ -91,20 +80,26 @@ class RAGEngine:
                     metadata={"source": os.path.basename(pdf_path)}
                 ))
 
+        # Memory cleanup: force release PDF resources
+        try:
+            if hasattr(result.input, '_backend'):
+                result.input._backend.unload()
+        except:
+            pass
+
         return full_text, page_chunks
 
-    def process_pdfs(self, file_paths: List[str]) -> Tuple[int, int]:
+    def process_pdfs(self, file_paths: List[str]):
         all_chunks = []
         for path in file_paths:
             _, chunks = self.parse_document(path)
             all_chunks.extend(chunks)
 
         self.chunks = all_chunks
-
         if not self.chunks:
             raise ValueError("No text chunks extracted from the PDFs.")
 
-        # Now we actually need embeddings, so load them
+        # Load embeddings ONLY now, when we actually need them
         embeddings = self._get_embeddings()
         self.vectorstore = FAISS.from_documents(self.chunks, embeddings)
 
@@ -113,7 +108,7 @@ class RAGEngine:
 
         return len(self.chunks), len(file_paths)
 
-    def _hybrid_search(self, query: str, k: int = 4) -> List[Document]:
+    def _hybrid_search(self, query: str, k: int = 4):
         vector_docs = self.vectorstore.similarity_search(query, k=k)
         tokenized_query = query.split()
         bm25_scores = self.bm25.get_scores(tokenized_query)
@@ -129,11 +124,11 @@ class RAGEngine:
 
         return combined[:k]
 
-    def ask(self, question: str) -> AnswerResponse:
+    def ask(self, question: str):
         if self.vectorstore is None:
             raise ValueError("No PDFs processed yet. Please upload first.")
 
-        # Lazy-load the LLM only when the first question is asked
+        # Load Groq ONLY now, when we actually need to answer
         self._load_llm()
 
         docs = self._hybrid_search(question, k=4)
