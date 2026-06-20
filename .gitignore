@@ -1,5 +1,36 @@
+# Python
 venv/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+
+# Environment variables
 .env
-Dockerfile
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+*.out
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Project specific

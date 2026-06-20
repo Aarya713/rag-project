@@ -1,6 +1,7 @@
 ﻿import os
 import numpy as np
 from typing import List, Tuple, Optional
+from dotenv import load_dotenv
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
@@ -10,10 +11,13 @@ from langchain_groq import ChatGroq
 
 from .models import AnswerResponse, SourceInfo
 
+# Load .env at module level – safe to call multiple times
+load_dotenv()
+
 class RAGEngine:
     def __init__(self, device: int = -1):
         self.device = device
-        # IMPORTANT: These are set to None initially (NOT loaded)
+        # All heavy components are None initially
         self._embeddings = None
         self._docling_converter = None
         self.vectorstore = None
@@ -23,7 +27,6 @@ class RAGEngine:
         self.history = []
         print("📦 RAG engine initialized. Heavy components will load only when needed.")
 
-    # This function loads the embedding model ONLY when you upload a PDF
     def _get_embeddings(self):
         if self._embeddings is None:
             from langchain_huggingface import HuggingFaceEmbeddings
@@ -32,24 +35,35 @@ class RAGEngine:
             )
         return self._embeddings
 
-    # This function loads the PDF converter ONLY when you upload a PDF
     def _get_converter(self):
         if self._docling_converter is None:
             from docling.document_converter import DocumentConverter
             self._docling_converter = DocumentConverter()
         return self._docling_converter
 
-    # This function loads Groq ONLY when you ask a question
     def _load_llm(self):
         if self.llm is not None:
             return
-        self.llm = ChatGroq(
-            model="mixtral-8x7b-32768",
-            temperature=0.3,
-            max_tokens=512
-        )
+        # Reload .env just to be safe
+        load_dotenv()
+        
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise ValueError("GROQ_API_KEY not set in environment. Please add it to .env file.")
+        
+        try:
+            self.llm = ChatGroq(
+                model="llama-3.3-70b-versatile",  # Active model
+                temperature=0.3,
+                max_tokens=512,
+                api_key=api_key
+            )
+            print("✅ Groq LLM loaded successfully.")
+        except Exception as e:
+            print(f"❌ Failed to load Groq: {e}")
+            raise
 
-    def parse_document(self, pdf_path: str):
+    def parse_document(self, pdf_path: str) -> Tuple[str, List[Document]]:
         converter = self._get_converter()
         result = converter.convert(pdf_path)
         doc = result.document
@@ -80,7 +94,7 @@ class RAGEngine:
                     metadata={"source": os.path.basename(pdf_path)}
                 ))
 
-        # Memory cleanup: force release PDF resources
+        # Memory cleanup
         try:
             if hasattr(result.input, '_backend'):
                 result.input._backend.unload()
@@ -89,7 +103,7 @@ class RAGEngine:
 
         return full_text, page_chunks
 
-    def process_pdfs(self, file_paths: List[str]):
+    def process_pdfs(self, file_paths: List[str]) -> Tuple[int, int]:
         all_chunks = []
         for path in file_paths:
             _, chunks = self.parse_document(path)
@@ -99,7 +113,6 @@ class RAGEngine:
         if not self.chunks:
             raise ValueError("No text chunks extracted from the PDFs.")
 
-        # Load embeddings ONLY now, when we actually need them
         embeddings = self._get_embeddings()
         self.vectorstore = FAISS.from_documents(self.chunks, embeddings)
 
@@ -108,7 +121,7 @@ class RAGEngine:
 
         return len(self.chunks), len(file_paths)
 
-    def _hybrid_search(self, query: str, k: int = 4):
+    def _hybrid_search(self, query: str, k: int = 4) -> List[Document]:
         vector_docs = self.vectorstore.similarity_search(query, k=k)
         tokenized_query = query.split()
         bm25_scores = self.bm25.get_scores(tokenized_query)
@@ -124,11 +137,10 @@ class RAGEngine:
 
         return combined[:k]
 
-    def ask(self, question: str):
+    def ask(self, question: str) -> AnswerResponse:
         if self.vectorstore is None:
             raise ValueError("No PDFs processed yet. Please upload first.")
 
-        # Load Groq ONLY now, when we actually need to answer
         self._load_llm()
 
         docs = self._hybrid_search(question, k=4)
@@ -147,18 +159,31 @@ Context:
 
 Question: {question}
 Answer (strictly from context, say "I could not find this information in the document" if not present):"""
-        raw = self.llm.invoke(prompt)
-        if hasattr(raw, 'content'):
-            answer = raw.content.strip()
-        else:
-            answer = str(raw).strip()
+        try:
+            raw = self.llm.invoke(prompt)
+            if hasattr(raw, 'content'):
+                answer = raw.content.strip()
+            else:
+                answer = str(raw).strip()
+        except Exception as e:
+            raise Exception(f"Error calling Groq API: {e}")
 
         self.history.append((question, answer))
 
-        sources = []
-        for d in docs:
-            src = d.metadata.get("source", "unknown")
-            page = d.metadata.get("page")
-            sources.append(SourceInfo(source=src, page=page))
+        # ============================================================
+        # 🔽 TOGGLE SOURCES DISPLAY
+        # Set this to True to show sources, False to hide them.
+        # ============================================================
+        SHOW_SOURCES = False   # <-- Change to True to enable sources
+        # ============================================================
+
+        if SHOW_SOURCES:
+            sources = []
+            for d in docs:
+                src = d.metadata.get("source", "unknown")
+                page = d.metadata.get("page")
+                sources.append(SourceInfo(source=src, page=page))
+        else:
+            sources = []
 
         return AnswerResponse(answer=answer, sources=sources)
