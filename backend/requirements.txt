@@ -1,18 +1,36 @@
-﻿fastapi==0.137.2
-uvicorn==0.38.0
-python-multipart==0.0.32
-langchain==1.2.10
-langchain-huggingface==1.2.0
-langchain-community==0.4.1
-langchain-text-splitters==1.1.1
-faiss-cpu==1.13.2
-sentence-transformers==5.2.3
-transformers>=4.30.0,<5.0.0
-torch==2.10.0
-docling==2.104.0
-rank-bm25==0.2.2
-python-dotenv==1.2.1
-pillow==12.1.1
-accelerate==1.12.0
-pydantic==2.12.5
-langchain-groq>=0.2.0
+# ── Web framework ────────────────────────────────────────────────────────────
+fastapi>=0.110.0,<1.0.0
+uvicorn>=0.29.0,<1.0.0
+python-multipart>=0.0.9,<1.0.0
+
+# ── LangChain stack ──────────────────────────────────────────────────────────
+langchain>=0.2.0,<1.0.0
+langchain-core>=0.2.0,<1.0.0
+langchain-community>=0.2.0,<1.0.0
+langchain-text-splitters>=0.2.0,<1.0.0
+langchain-groq>=0.1.6,<1.0.0
+langchain-huggingface>=0.0.3,<1.0.0
+
+# ── Embeddings & vector search ───────────────────────────────────────────────
+# Install CPU-only torch first to avoid pulling the 2 GB+ CUDA build.
+# The --index-url flag only applies to torch itself; all other packages
+# continue to resolve from PyPI.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.1.0,<3.0.0
+sentence-transformers>=2.2.0,<4.0.0
+transformers>=4.36.0,<5.0.0
+faiss-cpu>=1.7.4,<2.0.0
+
+# ── PDF parsing ───────────────────────────────────────────────────────────────
+# docling pulls its own torch/transformers; pin to a stable 2.x release
+# that ships pre-built wheels and avoids re-downloading a second torch copy.
+docling>=2.5.0,<3.0.0
+
+# ── Retrieval helpers ────────────────────────────────────────────────────────
+rank-bm25>=0.2.2,<1.0.0
+numpy>=1.26.0,<3.0.0
+
+# ── Utilities ────────────────────────────────────────────────────────────────
+python-dotenv>=1.0.0,<2.0.0
+pillow>=10.0.0,<13.0.0
+pydantic>=2.6.0,<3.0.0
