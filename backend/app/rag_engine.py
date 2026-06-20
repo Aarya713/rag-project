@@ -3,11 +3,10 @@ import numpy as np
 from typing import List, Tuple, Optional
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from rank_bm25 import BM25Okapi
-from langchain_groq import ChatGroq  # <-- NEW: Groq for free AI
+from langchain_groq import ChatGroq
 from docling.document_converter import DocumentConverter
 
 from .models import AnswerResponse, SourceInfo
@@ -15,16 +14,34 @@ from .models import AnswerResponse, SourceInfo
 class RAGEngine:
     def __init__(self, device: int = -1):
         self.device = device
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2"
-        )
+        # LAZY LOAD: Don't load embeddings immediately
+        self._embeddings = None
+        self._docling_converter = None
         self.vectorstore = None
         self.bm25 = None
         self.chunks = []
         self.llm = None
         self.history = []
-        # Do NOT load the LLM here – it will be loaded on first ask
-        print("📦 RAG engine initialized (Groq API will load on first question).")
+        print("📦 RAG engine initialized (components will load on demand).")
+
+    def _get_embeddings(self):
+        """Load HuggingFace embeddings only when needed."""
+        if self._embeddings is None:
+            print("🔄 Loading embedding model...")
+            from langchain_huggingface import HuggingFaceEmbeddings
+            self._embeddings = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2"
+            )
+            print("✅ Embedding model loaded.")
+        return self._embeddings
+
+    def _get_converter(self):
+        """Load DocumentConverter only when needed."""
+        if self._docling_converter is None:
+            print("🔄 Loading document converter...")
+            self._docling_converter = DocumentConverter()
+            print("✅ Document converter loaded.")
+        return self._docling_converter
 
     def _load_llm(self):
         """Load Groq LLM lazily – completely free!"""
@@ -33,7 +50,7 @@ class RAGEngine:
         print("🤖 Connecting to Groq API (Free tier)...")
         try:
             self.llm = ChatGroq(
-                model="mixtral-8x7b-32768",  # Smart, fast, and 100% free
+                model="mixtral-8x7b-32768",
                 temperature=0.3,
                 max_tokens=512
             )
@@ -43,7 +60,8 @@ class RAGEngine:
             raise
 
     def parse_document(self, pdf_path: str) -> Tuple[str, List[Document]]:
-        converter = DocumentConverter()
+        # Use lazy-loaded converter
+        converter = self._get_converter()
         result = converter.convert(pdf_path)
         doc = result.document
         full_text = doc.export_to_markdown()
@@ -86,7 +104,9 @@ class RAGEngine:
         if not self.chunks:
             raise ValueError("No text chunks extracted from the PDFs.")
 
-        self.vectorstore = FAISS.from_documents(self.chunks, self.embeddings)
+        # Now we actually need embeddings, so load them
+        embeddings = self._get_embeddings()
+        self.vectorstore = FAISS.from_documents(self.chunks, embeddings)
 
         tokenized_chunks = [chunk.page_content.split() for chunk in self.chunks]
         self.bm25 = BM25Okapi(tokenized_chunks)
@@ -133,7 +153,10 @@ Context:
 Question: {question}
 Answer (strictly from context, say "I could not find this information in the document" if not present):"""
         raw = self.llm.invoke(prompt)
-        answer = raw.content.strip()  # <-- Groq returns content attribute
+        if hasattr(raw, 'content'):
+            answer = raw.content.strip()
+        else:
+            answer = str(raw).strip()
 
         self.history.append((question, answer))
 
