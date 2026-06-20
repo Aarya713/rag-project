@@ -15,4 +15,4 @@ python-dotenv==1.2.1
 pillow==12.1.1
 accelerate==1.12.0
 pydantic==2.12.5
-langchain-groq==0.1.0
+langchain-groq>=0.2.0
