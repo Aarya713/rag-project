@@ -3,19 +3,17 @@ import numpy as np
 from typing import List, Tuple, Optional
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFacePipeline, HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from rank_bm25 import BM25Okapi
-from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
+from langchain_groq import ChatGroq  # <-- NEW: Groq for free AI
 from docling.document_converter import DocumentConverter
-import torch
 
 from .models import AnswerResponse, SourceInfo
 
 class RAGEngine:
-    def __init__(self, model_name: str = "google/flan-t5-small", device: int = -1):
-        self.model_name = model_name
+    def __init__(self, device: int = -1):
         self.device = device
         self.embeddings = HuggingFaceEmbeddings(
             model_name="sentence-transformers/all-MiniLM-L6-v2"
@@ -26,35 +24,22 @@ class RAGEngine:
         self.llm = None
         self.history = []
         # Do NOT load the LLM here – it will be loaded on first ask
-        print("📦 RAG engine initialized (LLM will load on first question).")
+        print("📦 RAG engine initialized (Groq API will load on first question).")
 
     def _load_llm(self):
-        """Load the LLM lazily – only once."""
+        """Load Groq LLM lazily – completely free!"""
         if self.llm is not None:
             return
-        print(f"🤖 Loading LLM: {self.model_name} ... (this may take a few minutes on first run)")
+        print("🤖 Connecting to Groq API (Free tier)...")
         try:
-            tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-            model = AutoModelForCausalLM.from_pretrained(
-                self.model_name,
-                torch_dtype=torch.float16 if self.device == 0 else torch.float32,
-                device_map="auto" if self.device == 0 else None,
-                low_cpu_mem_usage=True
-            )
-            pipe = pipeline(
-                "text-generation",
-                model=model,
-                tokenizer=tokenizer,
-                max_new_tokens=512,
+            self.llm = ChatGroq(
+                model="mixtral-8x7b-32768",  # Smart, fast, and 100% free
                 temperature=0.3,
-                do_sample=True,
-                return_full_text=False,
-                device=self.device
+                max_tokens=512
             )
-            self.llm = HuggingFacePipeline(pipeline=pipe)
-            print("✅ LLM loaded successfully.")
+            print("✅ Groq connected successfully!")
         except Exception as e:
-            print(f"❌ Failed to load LLM: {e}")
+            print(f"❌ Failed to connect to Groq: {e}")
             raise
 
     def parse_document(self, pdf_path: str) -> Tuple[str, List[Document]]:
@@ -148,7 +133,7 @@ Context:
 Question: {question}
 Answer (strictly from context, say "I could not find this information in the document" if not present):"""
         raw = self.llm.invoke(prompt)
-        answer = raw.strip()
+        answer = raw.content.strip()  # <-- Groq returns content attribute
 
         self.history.append((question, answer))
 
