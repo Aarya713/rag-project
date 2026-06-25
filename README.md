@@ -94,7 +94,7 @@ Here is your **complete README.md** in one block:
 
 | Component | Technology | Purpose |
 | :--- | :--- | :--- |
-| **Backend** | FastAPI, Python 3.11 | REST API server |
+| Backend | FastAPI, Python 3.11 | REST API server |
 | **Document Parsing** | Docling | Extract text from PDFs |
 | **Text Splitting** | RecursiveCharacterTextSplitter | Chunk documents |
 | **Vector Store** | FAISS | Efficient similarity search |

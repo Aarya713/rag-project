@@ -174,7 +174,7 @@ Answer (strictly from context, say "I could not find this information in the doc
         # 🔽 TOGGLE SOURCES DISPLAY
         # Set this to True to show sources, False to hide them.
         # ============================================================
-        SHOW_SOURCES = False   # <-- Change to True to enable sources
+        SHOW_SOURCES = False  
         # ============================================================
 
         if SHOW_SOURCES:
